@@ -9,6 +9,10 @@
 #include <sstream>
 #include <atomic>
 #include <cstdint>
+#include <charconv>
+#include <optional>
+#include <string_view>
+#include <system_error>
 
 #include "httplib.h"
 #include "inspectflow/inference_engine.hpp"
@@ -56,6 +60,42 @@ void send_error(
 
     response.status = status;
     response.set_content(body, "application/json");
+}
+
+std::optional<std::int64_t> parse_detection_id(
+    std::string_view text
+) {
+    // 1. 不能为空。
+    if (text.empty()) {
+        return std::nullopt;
+    }
+
+    // 2. 只接受数字，不接受正负号、空格、小数点等。
+    for (char ch : text) {
+        if (ch < '0' || ch > '9') {
+            return std::nullopt;
+        }
+    }
+
+    // 3. 转换成 int64_t。
+    std::int64_t id = 0;
+
+    const char* begin = text.data();
+    const char* end = begin + text.size();
+
+    const auto result = std::from_chars(begin, end, id, 10);
+
+    // 4. 检查转换错误，以及是否完整解析了字符串。
+    if (result.ec != std::errc{} || result.ptr != end) {
+        return std::nullopt;
+    }
+
+    // 5. 当前接口只接受正整数编号。
+    if (id <= 0) {
+        return std::nullopt;
+    }
+
+    return id;
 }
 
 int main(int argc, char* argv[]) {
@@ -272,7 +312,7 @@ int main(int argc, char* argv[]) {
         );
 
         server.Get("/v1/models/current",
-            [&engine](const httplib::Request&, httplib::Response& response) {
+            [&engine](const httplib::Request& request, httplib::Response& response) {
                 const std::string request_id = next_request_id();
 
                 // 同时放进响应头，方便调试。
@@ -310,6 +350,85 @@ int main(int argc, char* argv[]) {
                     << ",\"onnxruntime_version\":";
                 write_json_string(json, Ort::GetVersionString());
                 json << '}';
+
+                response.status = 200;
+                response.set_content(json.str(), "application/json");
+            }
+        );
+
+        server.Get(
+            "/v1/detections/:detection_id",
+            [&store](const httplib::Request& request, httplib::Response& response) {
+                const std::string request_id = next_request_id();
+                response.set_header("X-Request-ID", request_id);
+
+                // 这是命名路径参数，不是正则捕获组。
+                const std::string id_text = request.path_params.at("detection_id");
+                const auto id = parse_detection_id(id_text);
+
+                if (!id.has_value()) {
+                    send_error(
+                        response, 400, request_id,
+                        "INVALID_DETECTION_ID",
+                        "检测编号必须是 int64 范围内的正整数"
+                    );
+                    return;
+                }
+
+                // 放在 try 外，后面才能继续使用。
+                std::optional<StoredDetection> record;
+
+                try {
+                    record = store.find_by_id(*id);
+                } catch (const std::exception& error) {
+                    std::cerr << "[" << request_id << "] "
+                            << "Database read failed: " << error.what() << '\n';
+
+                    send_error(
+                        response, 500, request_id,
+                        "READ_FAILED",
+                        "数据库读取失败"
+                    );
+                    return;
+                }
+
+                if (!record.has_value()) {
+                    send_error(
+                        response, 404, request_id,
+                        "DETECTION_NOT_FOUND",
+                        "未找到对应的检测记录"
+                    );
+                    return;
+                }
+
+                const auto& actual = record->record;
+
+                std::ostringstream json;
+                json.imbue(std::locale::classic());
+                json << std::setprecision(9) << std::boolalpha;
+
+                json << "{\"detection_id\":" << record->detection_id;
+
+                json << ",\"created_at\":";
+                write_json_string(json, actual.created_at);
+
+                json << ",\"request_id\":";
+                write_json_string(json, actual.request_id);
+
+                json << ",\"model_name\":";
+                write_json_string(json, actual.model_name);
+
+                json << ",\"model_version\":";
+                if (actual.model_version.has_value()) {
+                    json << *actual.model_version;
+                } else {
+                    json << "null";
+                }
+
+                json << ",\"pred_score\":" << actual.pred_score
+                    << ",\"pred_label\":" << actual.pred_label
+                    << ",\"inference_ms\":" << actual.inference_ms
+                    << "}";
 
                 response.status = 200;
                 response.set_content(json.str(), "application/json");
