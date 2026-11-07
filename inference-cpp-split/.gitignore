@@ -1,0 +1,6 @@
+.DS_Store
+build/
+build-*/
+outputs/
+third_party/
+images.txt

@@ -1,0 +1,29 @@
+identity:
+  name: detect_anomaly
+  author: "godfan"
+  label:
+    en_US: Detect Anomaly
+    zh_Hans: 工业图片异常检测
+
+description:
+  human:
+    en_US: Check an industrial image for anomalies.
+    zh_Hans: 对工业图片进行异常检测。
+  llm: Inspect an uploaded industrial image for anomalies.
+
+parameters:
+  - name: image
+    type: file
+    required: true
+    label:
+      en_US: Image
+      zh_Hans: 待检测图片
+    human_description:
+      en_US: Upload one industrial image.
+      zh_Hans: 上传一张待检测的工业产品图片。
+    llm_description: The image to inspect.
+    form: llm
+
+extra:
+  python:
+    source: tools/inspectflow.py

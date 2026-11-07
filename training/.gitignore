@@ -1,0 +1,8 @@
+.venv/
+datasets/
+outputs/
+logs/
+__pycache__/
+*.pyc
+*.ckpt
+.DS_Store

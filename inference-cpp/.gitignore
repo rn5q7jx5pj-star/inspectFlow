@@ -1,0 +1,8 @@
+# 编译生成的文件
+build/
+
+# 下载的第三方开发包
+third_party/
+
+# macOS文件夹元数据
+.DS_Store

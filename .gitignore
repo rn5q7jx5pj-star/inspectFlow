@@ -1,0 +1,23 @@
+# Local environments and credentials
+.venv/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+# Generated files and external artifacts
+build/
+build-*/
+third_party/
+datasets/
+outputs/
+results/
+*.ckpt
+*.onnx
+*.db
+*.db-*
+*.sqlite*
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/
