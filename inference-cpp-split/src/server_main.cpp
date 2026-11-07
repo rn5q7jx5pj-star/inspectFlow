@@ -13,6 +13,8 @@
 #include "httplib.h"
 #include "inspectflow/inference_engine.hpp"
 #include "inspectflow/preprocess.hpp"
+#include "inspectflow/detection_record.hpp"
+#include "inspectflow/detection_store.hpp"
 #include <opencv2/imgcodecs.hpp>
 
 void write_json_string(std::ostream& out, const std::string& value) {
@@ -57,7 +59,7 @@ void send_error(
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
+    if (argc != 4) {
         std::cerr << "Usage: inspectflow_server <model.onnx> <port>\n";
         return 1;
     }
@@ -69,6 +71,8 @@ int main(int argc, char* argv[]) {
         const std::string port_text = argv[2];
         std::size_t used = 0;
         const int port = std::stoi(port_text, &used);
+
+        DetectionStore store(argv[3]);
 
         if (used != port_text.size() || port < 1 || port > 65535) {
             throw std::invalid_argument("Invalid port");
@@ -106,7 +110,7 @@ int main(int argc, char* argv[]) {
 
         server.Post(
             "/v1/detections",
-            [&engine](const httplib::Request& request,
+            [&engine, &store](const httplib::Request& request,
             httplib::Response& response) {
                 const std::string request_id = next_request_id();
 
@@ -197,6 +201,30 @@ int main(int argc, char* argv[]) {
 
                     const auto prediction = engine.predict(input);
 
+                    DetectionRecord record;
+                    record.request_id = request_id;
+                    record.model_name = engine.get_ModelName();
+                    record.model_version = engine.model_version();
+                    record.pred_score = prediction.score;
+                    record.pred_label = prediction.label;
+                    record.inference_ms = prediction.run_ms;
+
+                    std::int64_t id;
+                    try {
+                        id = store.insert(record);
+                    } catch (const std::exception& error) {
+                        std::cerr << "[" << request_id << "] "
+                                  << "Save failed: " << error.what() << '\n';
+                        send_error(
+                            response,
+                            500,
+                            request_id,
+                            "RESULT_SAVE_FAILED",
+                            "检测结果保存失败"
+                        );
+                        return;
+                    }
+
                     std::ostringstream json;
                     json.imbue(std::locale::classic());
 
@@ -204,6 +232,7 @@ int main(int argc, char* argv[]) {
                         << std::boolalpha
                         << "{"
                         << "\"request_id\":\"" << request_id << "\","
+                        << "\"detection_id\":\"" << id << "\","
                         << "\"pred_score\":" << prediction.score << ","
                         << "\"pred_label\":" << prediction.label << ","
                         << "\"inference_ms\":" << prediction.run_ms

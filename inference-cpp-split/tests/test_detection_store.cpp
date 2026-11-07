@@ -16,7 +16,6 @@ int main(int argc, char* argv[]) {
         DetectionStore store(argv[1]);
 
         DetectionRecord input;
-        input.created_at = "2026-11-04T00:00:00Z";
         input.request_id = "test-request";
         input.model_name = "TEST_MODEL_NOT_REAL";
         input.model_version = 1;
@@ -25,16 +24,16 @@ int main(int argc, char* argv[]) {
         input.inference_ms = 12.5;
 
         const auto id = store.insert(input);
-        const auto output = store.find_by_id(5);
+        const auto output = store.find_by_id(id);
 
         if (!output.has_value()) {
             throw std::runtime_error("Inserted record not found");
         }
 
         const auto& actual = output->record;
+        std::cout << actual.created_at << "\n";
 
         if (output->detection_id != id ||
-            actual.created_at != input.created_at ||
             actual.request_id != input.request_id ||
             actual.model_name != input.model_name ||
             actual.model_version != input.model_version ||

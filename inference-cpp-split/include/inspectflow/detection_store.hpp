@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <mutex>
 
 #include <sqlite3.h>
 
@@ -27,6 +28,9 @@ public:
 
 private:
     void initialize_schema();
+
+    // 保护共享连接，以及插入后读取记录编号的完整操作。
+    std::mutex mutex_;
 
     // 对象销毁时，自动调用 sqlite3_close 关闭连接 ｜ db_：我正在操作哪一个数据库
     std::unique_ptr<sqlite3, decltype(&sqlite3_close)> db_{

@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 图片预处理、热力图生成和 PNG 编码分别使用这些 OpenCV 模块。
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(SQLite3 REQUIRED)
 
 set(ONNXRUNTIME_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime-osx-arm64-1.30.0"
@@ -34,6 +35,7 @@ add_library(inspectflow_core STATIC
     src/preprocess.cpp
     src/inference_engine.cpp
     src/result_io.cpp
+    src/detection_store.cpp
 )
 
 target_include_directories(inspectflow_core PUBLIC
@@ -44,6 +46,7 @@ target_include_directories(inspectflow_core PUBLIC
 target_link_libraries(inspectflow_core PUBLIC
     onnxruntime
     ${OpenCV_LIBS}
+    SQLite3::SQLite3
 )
 
 add_executable(inspectflow_infer src/main.cpp)

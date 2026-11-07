@@ -128,7 +128,7 @@ void DetectionStore::initialize_schema() {
         CREATE TABLE IF NOT EXISTS detections (
             detection_id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-            created_at TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             request_id TEXT NOT NULL,
 
             model_name TEXT NOT NULL,
@@ -163,6 +163,8 @@ void DetectionStore::initialize_schema() {
 std::int64_t DetectionStore::insert(
     const DetectionRecord& record
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     // 不把无效数值写进数据库。
     if (!std::isfinite(record.pred_score) ||
         !std::isfinite(record.inference_ms) ||
@@ -172,7 +174,6 @@ std::int64_t DetectionStore::insert(
 
     const char* sql = R"sql(
         INSERT INTO detections (
-            created_at,
             request_id,
             model_name,
             model_version,
@@ -180,42 +181,41 @@ std::int64_t DetectionStore::insert(
             pred_label,
             inference_ms
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?);
     )sql";
 
     auto stmt = prepare(db_.get(), sql);
 
-    bind_text(db_.get(), stmt.get(), 1, record.created_at);
-    bind_text(db_.get(), stmt.get(), 2, record.request_id);
-    bind_text(db_.get(), stmt.get(), 3, record.model_name);
+    bind_text(db_.get(), stmt.get(), 1, record.request_id);
+    bind_text(db_.get(), stmt.get(), 2, record.model_name);
 
     if (record.model_version.has_value()) {
         check_ok(
             db_.get(),
             sqlite3_bind_int64(
-                stmt.get(), 4, *record.model_version
+                stmt.get(), 3, *record.model_version
             )
         );
     } else {
         check_ok(
             db_.get(),
-            sqlite3_bind_null(stmt.get(), 4)
+            sqlite3_bind_null(stmt.get(), 3)
         );
     }
 
     check_ok(
         db_.get(),
-        sqlite3_bind_double(stmt.get(), 5, record.pred_score)
+        sqlite3_bind_double(stmt.get(), 4, record.pred_score)
     );
 
     check_ok(
         db_.get(),
-        sqlite3_bind_int(stmt.get(), 6, record.pred_label ? 1 : 0)
+        sqlite3_bind_int(stmt.get(), 5, record.pred_label ? 1 : 0)
     );
 
     check_ok(
         db_.get(),
-        sqlite3_bind_double(stmt.get(), 7, record.inference_ms)
+        sqlite3_bind_double(stmt.get(), 6, record.inference_ms)
     );
 
     const int rc = sqlite3_step(stmt.get());
@@ -230,6 +230,8 @@ std::int64_t DetectionStore::insert(
 std::optional<StoredDetection> DetectionStore::find_by_id(
     std::int64_t id
 ) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (id <= 0) {
         throw std::invalid_argument("Detection ID must be positive");
     }
