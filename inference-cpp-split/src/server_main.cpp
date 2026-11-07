@@ -244,7 +244,11 @@ int main(int argc, char* argv[]) {
                     DetectionRecord record;
                     record.request_id = request_id;
                     record.model_name = engine.get_ModelName();
-                    record.model_version = engine.model_version();
+                    const auto version = engine.model_version();
+                    if (version > 0 &&
+                        version != std::numeric_limits<std::int64_t>::max()) {
+                        record.model_version = version;
+                    }
                     record.pred_score = prediction.score;
                     record.pred_label = prediction.label;
                     record.inference_ms = prediction.run_ms;
@@ -419,7 +423,9 @@ int main(int argc, char* argv[]) {
                 write_json_string(json, actual.model_name);
 
                 json << ",\"model_version\":";
-                if (actual.model_version.has_value()) {
+                if (actual.model_version.has_value() &&
+                    *actual.model_version > 0 &&
+                    *actual.model_version != std::numeric_limits<std::int64_t>::max()) {
                     json << *actual.model_version;
                 } else {
                     json << "null";

@@ -1,0 +1,29 @@
+identity:
+  name: get_detection_result
+  author: "godfan"
+  label:
+    en_US: Get Detection Result
+    zh_Hans: 查询历史检测结果
+
+description:
+  human:
+    en_US: Look up a saved detection result by its ID.
+    zh_Hans: 根据检测编号查询已保存的检测结果。
+  llm: Look up a saved detection result using its detection ID.
+
+parameters:
+  - name: detection_id
+    type: string
+    required: true
+    label:
+      en_US: Detection ID
+      zh_Hans: 检测编号
+    human_description:
+      en_US: Enter the ID returned by a previous detection.
+      zh_Hans: 输入之前检测时返回的检测编号。
+    llm_description: The ID of an existing saved detection.
+    form: llm
+
+extra:
+  python:
+    source: tools/get_detection_result.py

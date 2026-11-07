@@ -69,6 +69,7 @@ credentials_for_provider:
       zh_Hans: C++ 推理服务的基础地址。
 tools:
   - tools/inspectflow.yaml
+  - tools/get_detection_result.yaml
 extra:
   python:
     source: provider/inspectflow.py
