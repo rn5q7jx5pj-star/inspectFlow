@@ -8,6 +8,9 @@ import httpx
 from dify_plugin.file.file import File
 import requests
 
+import base64
+import binascii
+
 class InspectflowTool(Tool):
     def _invoke(
         self,
@@ -42,7 +45,12 @@ class InspectflowTool(Tool):
         }
 
         try:
-            resp = requests.post(url, files=files, timeout=10)
+            resp = requests.post(
+                url,
+                files=files,
+                data={"include_visualization": "true"},
+                timeout=10,
+            )
 
         except requests.exceptions.Timeout as exc:
             raise RuntimeError("推理服务请求超时") from exc
@@ -101,4 +109,47 @@ class InspectflowTool(Tool):
             if field not in result:
                 raise RuntimeError(f"推理服务响应缺少字段：{field}")
 
+        # 将图片数据从检测摘要中拆出，避免 Base64 出现在 JSON 输出里。
+        visualization = result.pop("visualization", None)
+        png_bytes = None
+        visualization_warning = None
+
+        if visualization is None:
+            visualization_warning = "检测成功，但服务没有返回可视化图片。"
+        elif not isinstance(visualization, dict):
+            visualization_warning = "检测成功，但可视化数据格式不正确。"
+        elif (
+            visualization.get("mime_type") != "image/png"
+            or visualization.get("encoding") != "base64"
+        ):
+            visualization_warning = "检测成功，但图片类型或编码方式不符合约定。"
+        else:
+            overlay_base64 = visualization.get("overlay")
+            if not isinstance(overlay_base64, str) or not overlay_base64:
+                visualization_warning = "检测成功，但图片数据为空或格式不正确。"
+            else:
+                try:
+                    png_bytes = base64.b64decode(overlay_base64, validate=True)
+                except (binascii.Error, ValueError):
+                    visualization_warning = "检测成功，但图片数据解码失败。"
+
+        if png_bytes == b"":
+            png_bytes = None
+            visualization_warning = "检测成功，但解码后的图片为空。"
+
+        if visualization_warning is not None:
+            result["visualization_warning"] = visualization_warning
+
+        # 输出一：不包含 Base64 的检测摘要。
         yield self.create_json_message(result)
+
+        # 输出二：如果图片可用，再输出 PNG 文件。
+        if png_bytes is not None:
+            yield self.create_blob_message(
+                blob=png_bytes,
+                meta={"mime_type": "image/png"},
+            )
+
+        # 图片不可用时，再返回一条易读提示。
+        if visualization_warning is not None:
+            yield self.create_text_message(visualization_warning)
