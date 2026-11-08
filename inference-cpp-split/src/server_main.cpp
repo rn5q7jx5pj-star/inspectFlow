@@ -19,7 +19,25 @@
 #include "inspectflow/preprocess.hpp"
 #include "inspectflow/detection_record.hpp"
 #include "inspectflow/detection_store.hpp"
+#include "inspectflow/result.hpp"
 #include <opencv2/imgcodecs.hpp>
+
+std::string base64_encode(const std::vector<unsigned char>& bytes) {
+    constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string output;
+    output.reserve(((bytes.size() + 2) / 3) * 4);
+    for (std::size_t i = 0; i < bytes.size(); i += 3) {
+        const std::uint32_t a = bytes[i];
+        const std::uint32_t b = i + 1 < bytes.size() ? bytes[i + 1] : 0;
+        const std::uint32_t c = i + 2 < bytes.size() ? bytes[i + 2] : 0;
+        const std::uint32_t value = (a << 16) | (b << 8) | c;
+        output += alphabet[(value >> 18) & 63];
+        output += alphabet[(value >> 12) & 63];
+        output += i + 1 < bytes.size() ? alphabet[(value >> 6) & 63] : '=';
+        output += i + 2 < bytes.size() ? alphabet[value & 63] : '=';
+    }
+    return output;
+}
 
 void write_json_string(std::ostream& out, const std::string& value) {
     constexpr char hex[] = "0123456789abcdef";
@@ -170,6 +188,27 @@ int main(int argc, char* argv[]) {
                     );
                     return;
                 }
+                bool include_visualization = false;
+
+                if (request.form.has_field("include_visualization")) {
+                    const std::string value =
+                        request.form.get_field("include_visualization");
+
+                    if (value == "true") {
+                        include_visualization = true;
+                    } else if (value == "false") {
+                        include_visualization = false;
+                    } else {
+                        send_error(
+                            response,
+                            400,
+                            request_id,
+                            "INVALID_VISUALIZATION_OPTION",
+                            "include_visualization 必须为 true 或 false"
+                        );
+                        return;
+                    }
+                }
 
                 // 2. 取出上传文件。
                 const auto file = request.form.get_file("image");
@@ -269,6 +308,26 @@ int main(int argc, char* argv[]) {
                         return;
                     }
 
+                    // 可视化失败不影响已经保存的检测结果。
+                    bool visualization_ok = false;
+                    std::string overlay_base64;
+                    if (include_visualization) {
+                        try {
+                            Result result;
+                            const cv::Mat heatmap = result.create_heatmap(prediction);
+                            const cv::Mat overlay = result.create_overlay(image, heatmap);
+                            std::vector<unsigned char> png_bytes;
+                            if (!cv::imencode(".png", overlay, png_bytes)) {
+                                throw std::runtime_error("PNG encoding failed");
+                            }
+                            overlay_base64 = base64_encode(png_bytes);
+                            visualization_ok = true;
+                        } catch (const std::exception& error) {
+                            std::cerr << "[" << request_id << "] Visualization failed: "
+                                      << error.what() << '\n';
+                        }
+                    }
+
                     std::ostringstream json;
                     json.imbue(std::locale::classic());
 
@@ -279,8 +338,16 @@ int main(int argc, char* argv[]) {
                         << "\"detection_id\":\"" << id << "\","
                         << "\"pred_score\":" << prediction.score << ","
                         << "\"pred_label\":" << prediction.label << ","
-                        << "\"inference_ms\":" << prediction.run_ms
-                        << "}";
+                        << "\"inference_ms\":" << prediction.run_ms;
+                    if (include_visualization && visualization_ok) {
+                        json << ",\"visualization\":{\"mime_type\":\"image/png\","
+                             << "\"encoding\":\"base64\",\"width\":256,\"height\":256,\"overlay\":";
+                        write_json_string(json, overlay_base64);
+                        json << "}";
+                    } else if (include_visualization) {
+                        json << ",\"visualization_error\":\"VISUALIZATION_UNAVAILABLE\"";
+                    }
+                    json << "}";
 
                     response.status = 200;
                     response.set_content(json.str(), "application/json");
