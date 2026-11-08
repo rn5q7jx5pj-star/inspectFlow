@@ -14,6 +14,7 @@
 #include "inspectflow/result.hpp"
 
 #include <onnxruntime_cxx_api.h>
+#include <opencv2/imgcodecs.hpp>
 
 namespace fs = std::filesystem;
 // ONNX保存的是类型枚举，这里将常用类型转换成易读的名称。
@@ -357,7 +358,11 @@ int main(int argc, char* argv[]) {
                     const auto folder_name =
                         input_path.parent_path().filename().string() + input_path.stem().string();
                     const auto image_load_start = Clock::now();
-                    const auto data = PreProcess::read_image(input_path);
+                    const cv::Mat original_bgr = cv::imread(input_path.string(), cv::IMREAD_COLOR);
+                    if (original_bgr.empty()) {
+                        throw std::runtime_error("Cannot read or decode image: " + input_path.string());
+                    }
+                    const auto data = PreProcess::convert_bgr_to_chw(original_bgr, cv::Size(256, 256));
                     image_load_ms = std::chrono::duration<double, std::milli>(
                             Clock::now() - image_load_start).count();
 
@@ -373,7 +378,7 @@ int main(int argc, char* argv[]) {
                                                  image_output_dir.string());
                     }
                     PreProcess::save_input_tensor(data, image_output_dir, true);
-                    result.write_images(image_output_dir, prediction);
+                    result.write_images(image_output_dir, prediction, original_bgr);
                     result.write_json(image_output_dir, prediction);
 
                     rows.push_back({input_path, true, prediction.score,

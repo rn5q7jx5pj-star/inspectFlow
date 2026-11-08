@@ -96,49 +96,77 @@ void Result::write_json(const std::filesystem::path& output_dir,
     write_bytes(output_dir / "prediction.json", text.data(), text.size());
 }
 
-void Result::write_images(const std::filesystem::path& output_dir,
-                          const Prediction& prediction) {
+cv::Mat Result::create_heatmap(const Prediction& prediction) {
     constexpr int size = 256;
     constexpr std::size_t pixels = size * size;
-    if (!std::filesystem::is_directory(output_dir)) {
-        throw std::runtime_error("Output directory does not exist: " + output_dir.string());
+    if (prediction.anomaly_map.size() != pixels) {
+        throw std::invalid_argument("Prediction anomaly_map must contain 256*256 elements");
     }
-    if (prediction.anomaly_map.size() != pixels || prediction.mask.size() != pixels) {
-        throw std::invalid_argument("Prediction maps must each contain 256*256 elements");
-    }
-
-    const auto heatmap_path = output_dir / "heatmap.png";
-    const auto mask_path = output_dir / "mask.png";
-    if (std::filesystem::exists(heatmap_path) || std::filesystem::exists(mask_path)) {
-        throw std::runtime_error("Heatmap or mask output file already exists");
-    }
-
     cv::Mat float_map(size, size, CV_32FC1);
-    cv::Mat mask_image(size, size, CV_8UC1);
     for (std::size_t i = 0; i < pixels; ++i) {
         const float value = prediction.anomaly_map[i];
-        const std::uint8_t mask_value = prediction.mask[i];
         if (!std::isfinite(value)) {
             throw std::invalid_argument("Prediction anomaly_map contains NaN or Inf");
         }
-        if (mask_value > 1) {
-            throw std::invalid_argument("Prediction mask must contain only 0 or 1");
-        }
         float_map.ptr<float>()[i] = value;
-        mask_image.data[i] = mask_value ? 255 : 0;
     }
-
     // 逐图归一化只用于展示；不同图片的颜色深浅不能直接比较异常程度。
     cv::Mat gray_map;
     cv::normalize(float_map, gray_map, 0, 255, cv::NORM_MINMAX, CV_8U);
     cv::Mat heatmap;
     cv::applyColorMap(gray_map, heatmap, cv::COLORMAP_JET);
+    return heatmap;
+}
+
+cv::Mat Result::create_overlay(const cv::Mat& original_bgr, const cv::Mat& heatmap) {
+    if (original_bgr.empty() || original_bgr.type() != CV_8UC3) {
+        throw std::invalid_argument("Original image must be a non-empty 8-bit BGR image");
+    }
+    if (heatmap.size() != cv::Size(256, 256) || heatmap.type() != CV_8UC3) {
+        throw std::invalid_argument("Heatmap must be a 256x256 8-bit BGR image");
+    }
+    cv::Mat resized, overlay;
+    cv::resize(original_bgr, resized, heatmap.size(), 0, 0, cv::INTER_LINEAR);
+    cv::addWeighted(resized, 0.6, heatmap, 0.4, 0.0, overlay);
+    return overlay;
+}
+
+void Result::write_images(const std::filesystem::path& output_dir,
+                          const Prediction& prediction,
+                          const cv::Mat& original_bgr) {
+    constexpr std::size_t pixels = 256 * 256;
+    if (!std::filesystem::is_directory(output_dir)) {
+        throw std::runtime_error("Output directory does not exist: " + output_dir.string());
+    }
+    if (prediction.mask.size() != pixels) {
+        throw std::invalid_argument("Prediction mask must contain 256*256 elements");
+    }
+    const auto heatmap_path = output_dir / "heatmap.png";
+    const auto mask_path = output_dir / "mask.png";
+    const auto overlay_path = output_dir / "overlay.png";
+    if (std::filesystem::exists(heatmap_path) || std::filesystem::exists(mask_path) ||
+        (!original_bgr.empty() && std::filesystem::exists(overlay_path))) {
+        throw std::runtime_error("Image output file already exists");
+    }
+    cv::Mat heatmap = create_heatmap(prediction);
+    cv::Mat mask_image(256, 256, CV_8UC1);
+    for (std::size_t i = 0; i < pixels; ++i) {
+        if (prediction.mask[i] > 1) {
+            throw std::invalid_argument("Prediction mask must contain only 0 or 1");
+        }
+        mask_image.data[i] = prediction.mask[i] ? 255 : 0;
+    }
+    cv::Mat overlay;
+    if (!original_bgr.empty()) overlay = create_overlay(original_bgr, heatmap);
 
     if (!cv::imwrite(heatmap_path.string(), heatmap)) {
         throw std::runtime_error("Failed to save heatmap: " + heatmap_path.string());
     }
     if (!cv::imwrite(mask_path.string(), mask_image)) {
         throw std::runtime_error("Failed to save mask: " + mask_path.string());
+    }
+    if (!overlay.empty() && !cv::imwrite(overlay_path.string(), overlay)) {
+        throw std::runtime_error("Failed to save overlay: " + overlay_path.string());
     }
 }
 

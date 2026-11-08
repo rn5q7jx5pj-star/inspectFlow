@@ -9,6 +9,7 @@ write_bytes：用于写文件
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <opencv2/core.hpp>
 
 struct Prediction;
 
@@ -27,13 +28,17 @@ struct RunInfo {
 
 class Result {
 public:
+    // 生成可复用的图片，不执行文件写入。
+    cv::Mat create_heatmap(const Prediction& prediction);
+    cv::Mat create_overlay(const cv::Mat& original_bgr, const cv::Mat& heatmap);
     // 将一次推理的数值摘要保存到已有目录中的 prediction.json。
     void write_json(const std::filesystem::path& output_dir,
                     const Prediction& prediction);
 
     // 将异常图和二值掩码分别保存为 heatmap.png、mask.png。
     void write_images(const std::filesystem::path& output_dir,
-                      const Prediction& prediction);
+                      const Prediction& prediction,
+                      const cv::Mat& original_bgr = cv::Mat());
 
     // 保存批量运行的模型、预处理、统计和计时信息。
     void write_run_info_json(const std::filesystem::path& output_dir,
