@@ -22,7 +22,10 @@ struct Prediction {
 class InferenceEngine {
 public:
     //加载模型｜一次加载
-    explicit InferenceEngine(const std::filesystem::path& model_path);
+    explicit InferenceEngine(
+        const std::filesystem::path& model_path,
+        int intra_op_threads = 0
+    );
     //模型推理｜多次推理
     Prediction predict(const std::vector<float>& data);
     std::int64_t model_version() const;

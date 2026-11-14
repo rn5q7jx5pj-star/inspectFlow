@@ -46,12 +46,33 @@ void require_tensor_value(const Ort::Value& value,
     }
 }
 
+Ort::SessionOptions make_session_options(int intra_op_threads) {
+    if (intra_op_threads < 0) {
+        throw std::invalid_argument("intra_op_threads cannot be negative");
+    }
+
+    Ort::SessionOptions options;
+
+    if (intra_op_threads > 0) {
+        options.SetIntraOpNumThreads(intra_op_threads);
+    }
+
+    return options;
+}
+
 }  // namespace
 
-// 模型只加载一次；提前确认它符合当前固定的输入、输出协议。
-InferenceEngine::InferenceEngine(const std::filesystem::path& model_path)
+// 模型只加载一次；提前确认它符合当前固定的输入、输出协议。Ort::SessionOptions为配置
+InferenceEngine::InferenceEngine(
+    const std::filesystem::path& model_path,
+    int intra_op_threads
+)
     : env_(ORT_LOGGING_LEVEL_WARNING, "InspectFlow"),
-      session_(env_, model_path.c_str(), Ort::SessionOptions{}) {
+      session_(
+          env_,
+          model_path.c_str(),
+          make_session_options(intra_op_threads)
+      )  {
     if (session_.GetInputCount() != 1) {
         throw std::runtime_error("Expected exactly one model input");
     }

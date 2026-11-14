@@ -117,8 +117,8 @@ std::optional<std::int64_t> parse_detection_id(
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 4 && argc != 5) {
-        std::cerr << "Usage: inspectflow_server <model.onnx> <port> [max_active_]\n";
+    if (argc != 4 && argc != 5 && argc != 6) {
+        std::cerr << "Usage: inspectflow_server <model.onnx> <port> [max_active_] [intra_op_threads]\n";
         return 1;
     }
 
@@ -140,6 +140,13 @@ int main(int argc, char* argv[]) {
         }
         DetectionLimiter limiter(max_active);//管理类
 
+        int intra_op_threads = 0;
+        if (argc == 6) {
+            const std::string text = argv[5];
+            std::size_t used = 0;
+            intra_op_threads = std::stoi(text, &used);
+        }
+
         if (used != port_text.size() || port < 1 || port > 65535) {
             throw std::invalid_argument("Invalid port");
         }
@@ -149,7 +156,7 @@ int main(int argc, char* argv[]) {
         }
 
         // 这里会加载模型。失败则抛异常，后面的监听不会执行。
-        InferenceEngine engine(model_path);
+        InferenceEngine engine(model_path,intra_op_threads);
 
         httplib::Server server;
 
