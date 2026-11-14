@@ -117,8 +117,8 @@ std::optional<std::int64_t> parse_detection_id(
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        std::cerr << "Usage: inspectflow_server <model.onnx> <port>\n";
+    if (argc != 4 && argc != 5) {
+        std::cerr << "Usage: inspectflow_server <model.onnx> <port> [max_active_]\n";
         return 1;
     }
 
@@ -131,6 +131,14 @@ int main(int argc, char* argv[]) {
         const int port = std::stoi(port_text, &used);
 
         DetectionStore store(argv[3]);
+        int max_active = 2;  // 未传 argv[4] 时的默认值
+
+        if (argc == 5) {
+            const std::string limit_text = argv[4];
+            std::size_t used = 0;
+            max_active = std::stoi(limit_text, &used);
+        }
+        DetectionLimiter limiter(max_active);//管理类
 
         if (used != port_text.size() || port < 1 || port > 65535) {
             throw std::invalid_argument("Invalid port");
@@ -168,7 +176,7 @@ int main(int argc, char* argv[]) {
 
         server.Post(
             "/v1/detections",
-            [&engine, &store](const httplib::Request& request,
+            [&engine, &store, &limiter](const httplib::Request& request,
             httplib::Response& response) {
                 const std::string request_id = next_request_id();
 
@@ -244,6 +252,19 @@ int main(int argc, char* argv[]) {
                     file.content.begin(),
                     file.content.end()
                 );
+
+                //增加名额管理
+                if(!limiter.try_acquire()){
+                    send_error(
+                        response,
+                        503,
+                        request_id,
+                        "SERVER_BUSY",
+                        "服务繁忙，请稍后重试"
+                    );
+                    return;
+                }
+                DetectionPermit permit(limiter);
 
                 // 4. 解码PNG/JPEG等文件，得到BGR像素矩阵。
                 cv::Mat image;

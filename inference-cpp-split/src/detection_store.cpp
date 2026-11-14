@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 #include <cmath>
+#include <cassert>
 
 namespace {
 
@@ -290,3 +291,20 @@ std::optional<StoredDetection> DetectionStore::find_by_id(
 
     return result;
 }
+
+bool DetectionLimiter::try_acquire(){
+    std::lock_guard<std::mutex> lock(mutex_);
+    if(this->active_ < this->max_active_){
+        this->active_++;
+        return true;
+    }
+    return false;
+}
+
+void DetectionLimiter::release(){
+    std::lock_guard<std::mutex> lock(mutex_);
+    assert(active_ > 0);
+    this->active_--;
+    return;
+}
+

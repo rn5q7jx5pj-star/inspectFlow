@@ -37,3 +37,35 @@ private:
         nullptr, &sqlite3_close
     };
 };
+
+//管理并发处理
+class DetectionLimiter {
+public:
+    explicit DetectionLimiter(int max_active) : max_active_(max_active) {}
+    bool try_acquire();  // 有空位：active 加 1，返回 true
+                         // 已满：不修改 active，返回 false
+
+    void release();       // active 减 1
+
+private:
+    std::mutex mutex_;
+    int active_ = 0;
+    int max_active_;
+};
+
+//哨兵
+class DetectionPermit {
+public:
+    explicit DetectionPermit(DetectionLimiter& limiter)
+        : limiter_(limiter) {}
+
+    ~DetectionPermit() {
+        limiter_.release();
+    }
+
+    DetectionPermit(const DetectionPermit&) = delete;
+    DetectionPermit& operator=(const DetectionPermit&) = delete;
+
+private:
+    DetectionLimiter& limiter_;
+};
